@@ -1,5 +1,7 @@
 -module(order).
--export([null/0, first/1, gr/2, goe/2, inc/1]).
+-export([null/0, first/1, gr/2, goe/2, inc/1, decr/1]).
+
+decr(N) -> N-1.
 
 null() ->
     {0,0}.

@@ -54,37 +54,37 @@ ballot(Name, Round, Proposal, Acceptors, PanelId) ->
             abort
     end.
 
-collect(0, _, _, Proposal) -> %PL: when no Acceptors needed to accept, accept immediately
-    {accepted, Proposal}; %PL: return accepted-the-proposal-.... to the ballot function which called this
-collect(N, Round, MaxVoted, Proposal) -> %PL: when more than 0 Acceptors needed to accept, wait for their replies
+collect(0, _, _, Proposal) -> %PL: when N reaches 0, accept proposal, i.e.
+    {accepted, Proposal}; %PL: return "accepted-the-proposal-...." to the ballot function which called this
+collect(N, Round, MaxVoted, Proposal) -> %decrease N upon receiving promise
     receive 
         {promise, Round, _, na} -> %PL: when no value received,
-            collect(N, Round, MaxVoted, Proposal); %PL: GAPS FILLED
+            collect(order:decr(N), Round, MaxVoted, Proposal); %PL: GAPS FILLED
         {promise, Round, Voted, Value} ->
-            case order:gr(Voted, Round) of %PL: GAPS FILLED
+            case order:gr(Voted, MaxVoted) of %PL: GAPS FILLED
                 true ->
-                    collect(N, Round, order:inc(MaxVoted), Value); %PL: GAPS FILLED
+                    collect(order:decr(N), Round, Voted, Value); %PL: GAPS FILLED
                 false ->
-                    collect(N, Round, MaxVoted, Proposal) %PL: GAPS FILLED
+                    collect(order:decr(N), Round, MaxVoted, Proposal) %PL: GAPS FILLED
             end;
         {promise, _, _,  _} ->
-            collect(N, Round, order:inc(MaxVoted), Proposal);
+            collect(order:decr(N), Round, MaxVoted, Proposal);
         {sorry, {prepare, Round}} ->
-            collect(N, Round, order:inc(MaxVoted), Proposal); %PL: GAPS FILLED
+            collect(N, Round, MaxVoted, Proposal); %PL: GAPS FILLED
         {sorry, _} ->
-            collect(N, Round, order:inc(MaxVoted), Proposal)
+            collect(N, Round, MaxVoted, Proposal)
     after ?timeout ->
             abort
     end.
 
-vote(0, _) ->
+vote(0, _) -> %counter at 0, stop collecting votes
     ok;
-vote(N, Round) ->
+vote(N, Round) -> %decrease counter N with every vote
     receive
         {vote, Round} ->
-            vote(N, Round); %PL: GAPS FILLED
+            vote(order:decr(N), Round); %PL: GAPS FILLED
         {vote, _} ->
-            vote(N, Round);
+            vote(order:decr(N), Round);
         {sorry, {accept, Round}} ->
             vote(N, Round); %PL: GAPS FILLED
         {sorry, _} ->

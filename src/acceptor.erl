@@ -13,11 +13,11 @@ init(Name, PanelId) ->
 acceptor(Name, Promised, Voted, Value, PanelId) ->
   receive
     {prepare, Proposer, Round} ->
-        case order:gr(Round, Promised) of %PL: GAPS FILLED
+        case order:gr(Round, Promised) of
             true -> %PL: when current proposers Number bigger than the previously voted ....
               %PL: then tell the proposer, you give him the promise, the original Number you respond to, the other
               %PL:  Number it was compared against and which of the values was chosen
-              Proposer ! {promise, Round, Voted, Value}, %PL: GAPS FILLED
+              Proposer ! {promise, Round, Voted, Value},
                 % Update gui
                 if
                     Value == na ->
@@ -38,9 +38,9 @@ acceptor(Name, Promised, Voted, Value, PanelId) ->
     {accept, Proposer, Round, Proposal} ->
         case order:goe(Round, Promised) of %PL: GAPS FILLED
             true ->
-                Proposer ! {vote, Proposal}, %PL: GAPS FILLED
+                Proposer ! {vote, Round}, %PL: GAPS FILLED
               %PL: update gui only if there was a change
-              case order:goe(Round, Promised) of %PL: GAPS FILLED NOT SURE HERE
+              case order:goe(Round, Voted) of %PL: GAPS FILLED NOT SURE HERE
                     true ->
                         % Update gui
     io:format("[Acceptor ~w] Phase 2: promised ~w voted ~w colour ~w~n",
