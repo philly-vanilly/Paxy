@@ -9,7 +9,7 @@ start(Name, Proposal, Acceptors, Sleep, PanelId) ->
 
 init(Name, Proposal, Acceptors, Sleep, PanelId) ->
     timer:sleep(Sleep),
-    Round = order:first(Name),
+    Round = order:first(Name), %PL: note, Name = Id (used as part of number-tuple), Round = whole tuple = (index, name), see order.erl
     round(Name, ?backoff, Round, Proposal, Acceptors, PanelId).
 
 round(Name, Backoff, Round, Proposal, Acceptors, PanelId) ->
@@ -19,7 +19,7 @@ round(Name, Backoff, Round, Proposal, Acceptors, PanelId) ->
     PanelId ! {updateProp, "Round: " 
             ++ io_lib:format("~p", [Round]), "Proposal: "
             ++ io_lib:format("~p", [Proposal]), Proposal},
-    case ballot(Name, ..., ..., ..., PanelId) of
+    case ballot(Name, Round, Proposal, Acceptors, PanelId) of %PL: GAPS FILLED
         {ok, Decision} ->
             io:format("[Proposer ~w] ~w DECIDED ~w in round ~w~n", 
             [Name, Acceptors, Decision, Round]),
@@ -27,15 +27,15 @@ round(Name, Backoff, Round, Proposal, Acceptors, PanelId) ->
             {ok, Decision};
         abort ->
             timer:sleep(rand:uniform(Backoff)),
-            Next = order:inc(...),
-            round(Name, (2*Backoff), ..., Proposal, Acceptors, PanelId)
+            Next = order:inc(Round), %PL: GAPS FILLED
+            round(Name, (2*Backoff), Next, Proposal, Acceptors, PanelId)
     end.
 
 ballot(Name, Round, Proposal, Acceptors, PanelId) ->
-    prepare(..., ...),
-    Quorum = (length(...) div 2) + 1,
+    prepare(Round, Acceptors), %PL: GAPS FILLED
+    Quorum = (length(Acceptors) div 2) + 1, %PL: GAPS FILLED (calculating needed acceptors for majority)
     MaxVoted = order:null(),
-    case collect(..., ..., ..., ...) of
+    case collect(Quorum, Round, MaxVoted, Proposal) of %PL: GAPS FILLED; not sure about N=Quorum
         {accepted, Value} ->
             % update gui
             io:format("[Proposer ~w] Phase 2: round ~w proposal ~w (was ~w)~n", 
@@ -43,34 +43,34 @@ ballot(Name, Round, Proposal, Acceptors, PanelId) ->
             PanelId ! {updateProp, "Round: " 
                     ++ io_lib:format("~p", [Round]), "Proposal: "
                     ++ io_lib:format("~p", [Value]), Value},
-            accept(..., ..., ...),
-            case vote(..., ...) of
-                ok ->
-                    {ok, ...};
+            accept(Round, Proposal, Acceptors), %PL: GAPS FILLED
+            case vote(..., Round) of %PL: GAPS FILLED
+                ok -> %PL: in case result of vote is an ok, do...
+                    {ok, ...}; %PL: GAPS FILLED
                 abort ->
-                    abort
+                    abort %PL: in case result of vote is an abort, do nothing
             end;
         abort ->
             abort
     end.
 
-collect(0, _, _, Proposal) ->
-    {accepted, Proposal};
-collect(N, Round, MaxVoted, Proposal) ->
+collect(0, _, _, Proposal) -> %PL: when no Acceptors needed to accept, accept immediately
+    {accepted, Proposal}; %PL: return accepted-the-proposal-.... to the ballot function which called this
+collect(N, Round, MaxVoted, Proposal) -> %PL: when more than 0 Acceptors needed to accept, contact them
     receive 
         {promise, Round, _, na} ->
-            collect(..., ..., ..., ...);
+            collect(..., ..., ..., ...); %PL: GAPS FILLED
         {promise, Round, Voted, Value} ->
-            case order:gr(..., ...) of
+            case order:gr(..., ...) of %PL: GAPS FILLED
                 true ->
-                    collect(..., ..., ..., ...);
+                    collect(..., ..., ..., ...); %PL: GAPS FILLED
                 false ->
-                    collect(..., ..., ..., ...)
+                    collect(..., ..., ..., ...) %PL: GAPS FILLED
             end;
         {promise, _, _,  _} ->
             collect(N, Round, MaxVoted, Proposal);
         {sorry, {prepare, Round}} ->
-            collect(..., ..., ..., ...);
+            collect(..., ..., ..., ...); %PL: GAPS FILLED
         {sorry, _} ->
             collect(N, Round, MaxVoted, Proposal)
     after ?timeout ->
@@ -82,11 +82,11 @@ vote(0, _) ->
 vote(N, Round) ->
     receive
         {vote, Round} ->
-            vote(..., ...);
+            vote(..., ...); %PL: GAPS FILLED
         {vote, _} ->
             vote(N, Round);
         {sorry, {accept, Round}} ->
-            vote(..., ...);
+            vote(..., ...); %PL: GAPS FILLED
         {sorry, _} ->
             vote(N, Round)
     after ?timeout ->
