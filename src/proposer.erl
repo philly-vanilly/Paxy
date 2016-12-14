@@ -86,9 +86,9 @@ vote(N, Round) -> %decrease counter N with every vote
         {vote, _} ->
             vote(order:decr(N), Round);
         {sorry, {accept, Round}} ->
-            vote(N, Round); %PL: GAPS FILLED
+            vote(order:decr(N), Round); %PL: GAPS FILLED
         {sorry, _} ->
-            vote(N, Round)
+            vote(order:decr(N), Round)
     after ?timeout ->
             abort
     end.
