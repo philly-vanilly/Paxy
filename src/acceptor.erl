@@ -13,50 +13,53 @@ init(Name, PanelId) ->
 acceptor(Name, Promised, Voted, Value, PanelId) ->
   receive
     {prepare, Proposer, Round} ->
-        case order:gr(..., ...) of
-            true ->
-                ... ! {promise, ..., ..., ...},               
+        case order:gr(Round, Promised) of %PL: GAPS FILLED
+            true -> %PL: when current proposers Number bigger than the previously voted ....
+              %PL: then tell the proposer, you give him the promise, the original Number you respond to, the other
+              %PL:  Number it was compared against and which of the values was chosen
+              Proposer ! {promise, Round, Voted, Value}, %PL: GAPS FILLED
                 % Update gui
                 if
                     Value == na ->
                         Colour = {0,0,0};
                     true ->
                         Colour = Value
-                end,                
+                end,
     io:format("[Acceptor ~w] Phase 1: promised ~w voted ~w colour ~w~n",
-                [Name, ..., ..., Value]),
+                [Name, Round, Voted, Value]), %PL: GAPS FILLED
                 PanelId ! {updateAcc, "Voted: " 
                         ++ io_lib:format("~p", [Voted]), "Promised: " 
-                        ++ io_lib:format("~p", [...]), Colour},
-                acceptor(Name, ..., Voted, Value, PanelId);
-            false ->
-                ... ! {sorry, {prepare, ...}},
-                acceptor(Name, ..., Voted, Value, PanelId)
+                        ++ io_lib:format("~p", [Promised]), Colour}, %PL: GAPS FILLED
+                acceptor(Name, Promised, Voted, Value, PanelId); %PL: GAPS FILLED
+            false -> %PL: otherwise ignore or optionally send sorry message back to proposer
+                Proposer ! {sorry, {prepare, Voted}}, %PL: GAPS FILLED
+                acceptor(Name, Promised, Voted, Value, PanelId) %PL: GAPS FILLED
         end;
     {accept, Proposer, Round, Proposal} ->
-        case order:goe(..., ...) of
+        case order:goe(Round, Promised) of %PL: GAPS FILLED
             true ->
-                ... ! {vote, ...},
-                case order:goe(..., ...) of
+                Proposer ! {vote, Proposal}, %PL: GAPS FILLED
+              %PL: update gui only if there was a change
+              case order:goe(Round, Promised) of %PL: GAPS FILLED NOT SURE HERE
                     true ->
                         % Update gui
     io:format("[Acceptor ~w] Phase 2: promised ~w voted ~w colour ~w~n",
-                        [Name, Promised, ..., ...]),
+                        [Name, Promised, Voted, Value]),
                         PanelId ! {updateAcc, "Voted: " 
-                                ++ io_lib:format("~p", [...]), "Promised: " 
-                                ++ io_lib:format("~p", [Promised]), ...},
-                        acceptor(Name, Promised, ..., ..., PanelId);
+                                ++ io_lib:format("~p", [Voted]), "Promised: "  %PL: GAPS FILLED
+                                ++ io_lib:format("~p", [Promised]), Promised}, %PL: GAPS FILLED
+                        acceptor(Name, Promised, Voted, Value, PanelId); %PL: GAPS FILLED
                     false ->
                         % Update gui
     io:format("[Acceptor ~w] Phase 2: promised ~w voted ~w colour ~w~n",
-                        [Name, Promised, ..., ...]),
+                        [Name, Promised, Voted, Value]), %PL: GAPS FILLED
                         PanelId ! {updateAcc, "Voted: " 
-                                ++ io_lib:format("~p", [...]), "Promised: " 
-                                ++ io_lib:format("~p", [Promised]), ...},
-                        acceptor(Name, Promised, ..., ..., PanelId)
+                                ++ io_lib:format("~p", [Voted]), "Promised: "  %PL: GAPS FILLED
+                                ++ io_lib:format("~p", [Promised]), Promised}, %PL: GAPS FILLED
+                        acceptor(Name, Promised, Voted, Value, PanelId) %PL: GAPS FILLED
                 end;                            
             false ->
-                ... ! {sorry, {accept, ...}},
+                Proposer ! {sorry, {accept, Voted}}, %PL: GAPS FILLED
                 acceptor(Name, Promised, Voted, Value, PanelId)
         end;
     stop ->

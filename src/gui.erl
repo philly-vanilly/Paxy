@@ -1,6 +1,6 @@
 -module(gui).
 -export([start/2]).
--include("wx/include/wx.hrl").
+-include_lib("wx/include/wx.hrl").
 
 -define(WindowSize, {450, 420}).
 -define(PanelSize, {175, 40}).
