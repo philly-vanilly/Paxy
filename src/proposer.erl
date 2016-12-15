@@ -80,7 +80,7 @@ collect(N, Round, MaxVoted, Proposal) -> % decrease N upon receiving promise
                     collect(N-1, Round, MaxVoted, Proposal)
             end;
         {promise, _, _,  _} ->
-            collect(N, Round, MaxVoted, Proposal);
+            collect(N-1, Round, MaxVoted, Proposal);
         {sorry, {prepare, Round}} ->
             collect(N, Round, MaxVoted, Proposal);
         {sorry, _} ->
@@ -96,11 +96,11 @@ vote(N, Round) -> % decrease counter N with every vote
         {vote, Round} ->
             vote(N-1, Round);
         {vote, _} ->
-            vote(N, Round);
+            vote(N-1, Round);
         {sorry, {accept, Round}} ->
-            vote(N, Round);
+            vote(N-1, Round);
         {sorry, _} ->
-            vote(N, Round)
+            vote(N-1, Round)
     after ?timeout ->
             abort
     end.

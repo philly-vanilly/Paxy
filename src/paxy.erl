@@ -1,40 +1,53 @@
 -module(paxy).
--export([start/1, stop/0, stop/1]). %PL: exposing interfaces
+-export([start/1, stop/0, stop/1]). % exposing interfaces for console. start program with (for example) paxy:start([50,100,200]).
 
--define(RED, {255,0,0}). %PL: defining colors for GUI. colors represent values to be voted for
+-define(RED, {255,0,0}). % defining colors for GUI. colors represent values to be voted for
 -define(BLUE, {0,0,255}).
 -define(GREEN, {0,255,0}).
+-define(A, {255,255,0}). % defining colors for GUI. colors represent values to be voted for
+-define(B, {0,255,255}).
+-define(C, {255,0,255}).
 
-% Sleep is a list with the initial sleep time for each proposer
-start(Sleep) -> %PL: entry point of the application
-    AcceptorNames = ["Acceptor a", "Acceptor b", "Acceptor c", "Acceptor d", "Acceptor e"],
-    AccRegister = [a, b, c, d, e],
 
-    ProposerNames = [{"Proposer kurtz", ?RED}, {"Proposer kilgore", ?GREEN}, {"Proposer willard", ?BLUE}],
-    PropInfo = [{kurtz, ?RED}, {kilgore, ?GREEN}, {willard, ?BLUE}],
 
-    register(gui, spawn(fun() -> gui:start(AcceptorNames, ProposerNames) end)), %PL: spawn creates a new process - in this case the GUI - and register assigns the tag/atom (gui) to that new process/PID
-    gui ! {reqState, self()}, %PL: send reference to itself (own PID) to GUI with request-state-command/atom
+% Entry point of the application. Sleep is a list with the initial sleep time for each proposer
+start(Sleep) ->
+    AcceptorNames = ["Acceptor a", "Acceptor b", "Acceptor c", "Acceptor d", "Acceptor e"
+%%        , "Acceptor f", "Acceptor g", "Acceptor h", "Acceptor i", "Acceptor j"
+    ],
+    AccRegister = [a, b, c, d, e
+%%        , f, g, h, i, j
+    ],
+
+    ProposerNames = [{"Proposer kurtz", ?RED}, {"Proposer kilgore", ?GREEN}, {"Proposer willard", ?BLUE}
+%%        , {"Proposer peter", ?A}, {"Proposer george", ?B}, {"Proposer klaus", ?C}
+    ],
+    PropInfo = [{kurtz, ?RED}, {kilgore, ?GREEN}, {willard, ?BLUE}
+%%    ,{peter, ?A}, {george, ?B}, {klaus, ?C}
+    ],
+
+    register(gui, spawn(fun() -> gui:start(AcceptorNames, ProposerNames) end)), % create new gui process
+    gui ! {reqState, self()}, % send reference of self (own PID) to GUI
     receive
         {reqState, State} ->
-            {AccIds, PropIds} = State, %PL: upon receiving message/response back from gui (with GUI-PID of acceptors and proposers... now GUI PIDs have to be linked with actual actors/PIDs - those are yet to be created), bind list-elements and start rest of execution
+            {AccIds, PropIds} = State,
             start_acceptors(AccIds, AccRegister),
             start_proposers(PropIds, PropInfo, AccRegister, Sleep)
     end,
     true.
 
-%PL: acceptors don't know each other or any of the proposers, they know only themselves
+% acceptors don't know each other or any of the proposers (until receiving a message), they know only themselves
 start_acceptors(AccIds, AccReg) ->
     case AccIds of
-        [] ->%PL: break on list end
+        [] ->% break on list end
             ok;
-        [AccId|Rest] ->%PL: process list head first
+        [AccId|Rest] ->% process list head first
             [RegName|RegNameRest] = AccReg,
-            register(RegName, acceptor:start(RegName, AccId)), %PL: start process in logic-module (not gui as before), assign passed atom-parameter as module-unique name
-            start_acceptors(Rest, RegNameRest)%PL: process rest of list
+            register(RegName, acceptor:start(RegName, AccId)),
+            start_acceptors(Rest, RegNameRest)
     end.
 
-%PL: proposers don't know each other, but all of the acceptors. each has a value=color to be voted for
+% proposers don't know each other, but they know all of the acceptors
 start_proposers(PropIds, PropInfo, Acceptors, Sleep) ->
     case PropIds of
         [] ->
@@ -46,7 +59,7 @@ start_proposers(PropIds, PropInfo, Acceptors, Sleep) ->
             start_proposers(Rest, RestInfo, Acceptors, RestSleep)
         end.
 
-stop() -> %PL: stop logic first, view later
+stop() -> % stop logic first, view later
     stop(a),
     stop(b),
     stop(c),
@@ -54,7 +67,7 @@ stop() -> %PL: stop logic first, view later
     stop(e),
     stop(gui).
 
-stop(Name) -> %PL: stop all sorts of processes
+stop(Name) -> % stop all sorts of processes
     case whereis(Name) of
         undefined ->
             ok;
