@@ -1,79 +1,92 @@
 -module(acceptor).
 -export([start/2]).
 
+% entry point of the module, creating a new process representing an instance of this module (like object in OOP)
 start(Name, PanelId) ->
     spawn(fun() -> init(Name, PanelId) end).
-        
-init(Name, PanelId) ->
-    Promised = order:null(), %initialized at 0 because not promised anything yet
-    Voted = order:null(), %initialized at 0 because not voted for anything yet
-    Value = na, %initialized at "null" because not voted for anything yet
-    acceptor(Name, Promised, Voted, Value, PanelId).
-%Name = name of acceptor
-%Promised = acceptor promised not to accept a ballot below this number
-%Voted = highest ballot number so far
-%Value = value of highest ballot number so far
-%PanelID = corresponding GUI PID
 
+% constructior function initializing with default values and parameters and starting the loop-function of the process
+init(Name, PanelId) ->
+    % initializing everything at 0 or not-available because there is no promise or vote (with corresponding value) at the
+    % beginning
+    Promised = order:null(),
+    Voted = order:null(),
+    Value = na,
+    acceptor(Name, Promised, Voted, Value, PanelId).
+
+
+% indefinitely running loop-function of the process which makes it alive.
+% after initialization listens to incoming messages for the process it belongs to. those messages control the function
+% and thus the process. at the end of control-flow for all messages (except the stop/terminate-call) is a recursive call
+% of the function, to
+%     (1) update "instance variables"  with recursive function-call with updated parameters
+%     (2) then start listening for the next message to arrive.
+%
+% ============ FUNCTION PARAMETERS: =================
+% Name = name of acceptor = "Acceptor a", ...
+% Promised = acceptor promised not to accept a ballot below this number = (N, Id)
+% Voted = highest ballot number so far = (N, Id)
+% Value = String-value of highest ballot number so far = RED/BLUE/... Colour = RGB-value
+% PanelID = corresponding GUI PID
 acceptor(Name, Promised, Voted, Value, PanelId) ->
-  receive %The acceptor is waiting for two types of messages: prepare requests and accept requests.
-    {prepare, Proposer, Round} -> %A prepare request from process Proposer, {prepare Proposer, Round}, will result in a
-      % promise, if we have not made any promise that prevents us to make such a promise. In order to check this, the Round
-      % number of the prepare request must be compared with the highest promise
-      % already given (Promised).
+  receive
+    % A message can be a single atom (defining type of message) or a list, with one of the elements (typically first one)
+    % being the atom-identifier.
+    % The acceptor is waiting for two types of messages: prepare requests and accept requests (and stop-process-call)
+
+    % ============ MESSAGE PARAMETERS: =================
+    % Proposer = PID of proposer that sent the message
+    % Round = proposer asks not to vote for anything smaller than that number = (N, Id)
+    {prepare, Proposer, Round} ->
+        % A prepare request from one Proposer will result in a promise, if there is no promise with an equal or higher
+        % number, i.e. for (N_1, Id_1) and (N_2, Id_2), either N2>N1 or the prepare-message gets ignored/sorry-replied
         case order:gr(Round, Promised) of
-            true -> %PL: when current proposers Number bigger than the previously voted ....
-              %PL: then tell the proposer, you give him the promise, the original Number you respond to, the other
-              %PL:  Number it was compared against and which of the values was chosen
-              Proposer ! {promise, Round, Voted, Value}, %If the Round number is higher, the acceptor can return a promise, {promise, Round, Voted, Value}.
-                % Update gui
-                if
+            true ->
+                Proposer ! {promise, Round, Voted, Value},
+                if % Update gui with new color or default color black when not voted before
                     Value == na ->
-                        Colour = {0,0,0}; %Black color corresponds to no value voted yet.
+                        Colour = {0,0,0};
                     true ->
                         Colour = Value
                 end,
-    io:format("[Acceptor ~w] Phase 1: promised ~w voted ~w colour ~w~n",
-                [Name, Round, Voted, Value]), %PL: GAPS FILLED
-                PanelId ! {updateAcc, "Voted: " 
-                        ++ io_lib:format("~p", [Voted]), "Promised: " 
-                        ++ io_lib:format("~p", [Promised]), Colour}, %PL: GAPS FILLED
-                acceptor(Name, Promised, Voted, Value, PanelId); %PL: GAPS FILLED
-            false -> %PL: you could ignore this but optionally send sorry message back to proposer
-              %To help the proposer we should inform it that we have promised not to vote in the round requested by the proposer
-                Proposer ! {sorry, {prepare, Round}}, %PL: GAPS FILLED
-                acceptor(Name, Promised, Voted, Value, PanelId) %PL: GAPS FILLED
+                io:format("[Acceptor ~w] Phase 1: promised ~w voted ~w colour ~w~n", [Name, Round, Voted, Value]),
+                PanelId ! {updateAcc, "Voted: "
+                          ++ io_lib:format("~p", [Voted]), "Promised: "
+                          ++ io_lib:format("~p", [Round]), Colour},
+                acceptor(Name, Round, Voted, Value, PanelId);
+            false ->
+                % In Paxos optional sorry message back to proposer containing Round, so Proposer knows to which original
+                % message this is a response to
+                Proposer ! {sorry, {prepare, Round}},
+                acceptor(Name, Promised, Voted, Value, PanelId)
         end;
 
-    % An accept request, sent by a Proposer when it has received promises from a majority, also has two outcomes; either
-    % we can vote the request and then save the value that comes in the ballot (if the ballot number is higher than the
-    % current maximum one) or we have a promise that prevents us from voting the request. Note that we do not change our
-    % promise just because we vote for a new value.
+    % ============ MESSAGE PARAMETERS: =================
+    % Proposer = PID of proposer that sent the message
+    % Round = proposer asks to vote for this number (and the corresponding value) = (N, Id)
+    % Proposal = proposer asks to vote for this value = RED/BLUE/...
     {accept, Proposer, Round, Proposal} ->
-        case order:goe(Proposal, Promised) of %PL: GAPS FILLED  when it has received promises from a majority
-            true ->
-                Proposer ! {vote, {Round}}, %PL: GAPS FILLED. vote the request ... and then save the value
-              %PL: update gui only if there was a change
-              case order:goe(Proposal, Voted) of %PL: GAPS FILLED. if the ballot number is higher/equals the current maximum one
-                    true ->
-                        % Update gui
-    io:format("[Acceptor ~w] Phase 2: promised ~w voted ~w colour ~w~n", [Name, Proposal, Proposal, Value]),
+        case order:goe(Round, Promised) of
+            true -> % Vote only if current proposal has same or higher number than previously given promise
+              Proposer ! {vote, {Round}},
+              case order:goe(Round, Voted) of
+                    true -> % update gui only if there was a vote (i.e. current vote-request being equal or higher numbered than a previous one)
+                        io:format("[Acceptor ~w] Phase 2: promised ~w voted ~w colour ~w~n", [Name, Promised, Round, Proposal]),
                         PanelId ! {updateAcc, "Voted: " 
-                                ++ io_lib:format("~p", [Proposal]), "Promised: "  %PL: GAPS FILLED
-                                ++ io_lib:format("~p", [Proposal]), Proposal}, %PL: GAPS FILLED
-                        acceptor(Name, Promised, Voted, Value, PanelId); %PL: GAPS FILLED. save the value that comes in the ballot
-                    false ->
-                        % Update gui
-    io:format("[Acceptor ~w] Phase 2: promised ~w voted ~w colour ~w~n", [Name, Promised, Voted, Value]), %PL: GAPS FILLED
+                                ++ io_lib:format("~p", [Round]), "Promised: "
+                                ++ io_lib:format("~p", [Promised]), Proposal},
+                        acceptor(Name, Promised, Round, Proposal, PanelId);
+                    false -> % send old values to gui
+                        io:format("[Acceptor ~w] Phase 2: promised ~w voted ~w colour ~w~n", [Name, Promised, Voted, Value]),
                         PanelId ! {updateAcc, "Voted: " 
-                                ++ io_lib:format("~p", [Voted]), "Promised: "  %PL: GAPS FILLED
-                                ++ io_lib:format("~p", [Promised]), Promised}, %PL: GAPS FILLED
-                        acceptor(Name, Promised, Voted, Value, PanelId) %PL: GAPS FILLED
+                                ++ io_lib:format("~p", [Voted]), "Promised: "
+                                ++ io_lib:format("~p", [Promised]), Value},
+                        acceptor(Name, Promised, Voted, Value, PanelId)
                 end;                            
             false ->
-                % Again, if we cannot vote the request we could simply ignore the message but it is polite
-                % to inform the Proposer.
-                Proposer ! {sorry, {accept, Voted}}, %PL: GAPS FILLED useless, there is no handler for sorry
+                % In Paxos optional sorry message back to proposer containing Round, so Proposer knows to which original
+                % message this is a response to
+                Proposer ! {sorry, {accept, Round}},
                 acceptor(Name, Promised, Voted, Value, PanelId)
         end;
     stop ->

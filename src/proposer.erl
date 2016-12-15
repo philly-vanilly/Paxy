@@ -4,91 +4,103 @@
 -define(timeout, 2000).
 -define(backoff, 10).
 
+% PROPOSER is active part of the application, setting the round (basically "clock") and sending messages to the
+% reactive/passive ACCEPTORs which just wait and send responses
+
+% entry point of the module, creating a new process representing an instance of this module (like object in OOP)
 start(Name, Proposal, Acceptors, Sleep, PanelId) ->
     spawn(fun() -> init(Name, Proposal, Acceptors, Sleep, PanelId) end).
 
+% constructior function initializing with default values and parameters and starting the loop-function of the process
+% - which is round(), all the other functions only get used by round()
 init(Name, Proposal, Acceptors, Sleep, PanelId) ->
     timer:sleep(Sleep),
-    Round = order:first(Name), %PL: note, Name = Id (used as part of number-tuple), Round = whole tuple = (index, name), see order.erl
+    Round = order:first(Name), % Round initialized at 0
     round(Name, ?backoff, Round, Proposal, Acceptors, PanelId).
 
+% recursive loop-function that sends messages to acceptors, waits for the response(s), handles them, calls itself at the end
+%
+% ============ FUNCTION PARAMETERS: =================
+% Name = name of acceptor = "willard", ...
+% Backoff = time constant
+% Round = number of an action of the proposer = (N, Id)
+% Proposal = proposer asks to vote for this value = RED/BLUE/...
+% Acceptors = list of all acceptors
+% PanelID = corresponding GUI PID
 round(Name, Backoff, Round, Proposal, Acceptors, PanelId) ->
-    % Update gui
-    io:format("[Proposer ~w] Phase 1: round ~w proposal ~w~n",
-    [Name, Round, Proposal]),
+    % Update gui at the beginning of each iteration (and also at change later)
+    io:format("[Proposer ~w] Phase 1: round ~w proposal ~w~n", [Name, Round, Proposal]),
     PanelId ! {updateProp, "Round: " 
             ++ io_lib:format("~p", [Round]), "Proposal: "
             ++ io_lib:format("~p", [Proposal]), Proposal},
     case ballot(Name, Round, Proposal, Acceptors, PanelId) of %PL: GAPS FILLED
         {ok, Decision} ->
-            io:format("[Proposer ~w] ~w DECIDED ~w in round ~w~n", 
-            [Name, Acceptors, Decision, Round]),
+            io:format("[Proposer ~w] ~w DECIDED ~w in round ~w~n", [Name, Acceptors, Decision, Round]),
             PanelId ! stop,
             {ok, Decision};
         abort ->
             timer:sleep(rand:uniform(Backoff)),
-            Next = order:inc(Round), %PL: GAPS FILLED
+            Next = order:inc(Round),
             round(Name, (2*Backoff), Next, Proposal, Acceptors, PanelId)
     end.
 
 ballot(Name, Round, Proposal, Acceptors, PanelId) ->
-    prepare(Round, Acceptors), %PL: GAPS FILLED
-    Quorum = (length(Acceptors) div 2) + 1, %PL: GAPS FILLED (calculating needed acceptors for majority)
+    prepare(Round, Acceptors),
+    Quorum = (length(Acceptors) div 2) + 1, %calculating needed acceptors for majority
     MaxVoted = order:null(),
-    case collect(Quorum, Round, MaxVoted, Proposal) of %PL: GAPS FILLED; not sure about N=Quorum
+    case collect(Quorum, Round, MaxVoted, Proposal) of
         {accepted, Value} ->
-            % update gui
-            io:format("[Proposer ~w] Phase 2: round ~w proposal ~w (was ~w)~n", 
-            [Name, Round, Value, Proposal]),
+            io:format("[Proposer ~w] Phase 2: round ~w proposal ~w (was ~w)~n", [Name, Round, Value, Proposal]),
             PanelId ! {updateProp, "Round: " 
                     ++ io_lib:format("~p", [Round]), "Proposal: "
                     ++ io_lib:format("~p", [Value]), Value},
-            accept(Round, Proposal, Acceptors), %PL: GAPS FILLED
-            case vote(Value, Round) of %PL: GAPS FILLED
-                ok -> %PL: in case result of vote is an ok, return OK+Decision
-                    {ok, Value}; %PL: GAPS FILLED
+            accept(Round, Value, Acceptors),
+            case vote(Quorum, Round) of
+                ok -> % in case result of vote is an ok, return decision
+                    {ok, Value};
                 abort ->
-                    abort %PL: in case result of vote is an abort, do nothing
+                    abort % in case result of vote is an abort, propagate abort
             end;
         abort ->
-            abort
+            abort % propagate abort
     end.
 
-collect(0, _, _, Proposal) -> %PL: when N reaches 0, accept proposal, i.e.
-    {accepted, Proposal}; %PL: return "accepted-the-proposal-...." to the ballot function which called this
-collect(N, Round, MaxVoted, Proposal) -> %decrease N upon receiving promise
+% Two collect()-functions for iterating a number of acceptors
+collect(0, _, _, Proposal) -> % when N reaches 0, the needed quorum of proposers has been asked, so accept proposal
+    {accepted, Proposal};
+collect(N, Round, MaxVoted, Proposal) -> % decrease N upon receiving promise
     receive 
-        {promise, Round, _, na} -> %PL: when no value received,
-            collect(order:decr(N), Round, MaxVoted, Proposal); %PL: GAPS FILLED
+        {promise, Round, _, na} ->
+            collect(N-1, Round, MaxVoted, Proposal);
         {promise, Round, Voted, Value} ->
-            case order:gr(Voted, MaxVoted) of %PL: GAPS FILLED
+            case order:gr(Voted, MaxVoted) of
                 true ->
-                    collect(order:decr(N), Round, Voted, Value); %PL: GAPS FILLED
+                    collect(N-1, Round, Voted, Value);
                 false ->
-                    collect(order:decr(N), Round, MaxVoted, Proposal) %PL: GAPS FILLED
+                    collect(N-1, Round, MaxVoted, Proposal)
             end;
         {promise, _, _,  _} ->
-            collect(order:decr(N), Round, MaxVoted, Proposal);
+            collect(N, Round, MaxVoted, Proposal);
         {sorry, {prepare, Round}} ->
-            collect(N, Round, MaxVoted, Proposal); %PL: GAPS FILLED
+            collect(N, Round, MaxVoted, Proposal);
         {sorry, _} ->
             collect(N, Round, MaxVoted, Proposal)
     after ?timeout ->
             abort
     end.
 
-vote(0, _) -> %counter at 0, stop collecting votes
+vote(0, _) -> % counter at 0, stop collecting votes
     ok;
-vote(N, Round) -> %decrease counter N with every vote
+vote(N, Round) -> % decrease counter N with every vote
     receive
         {vote, Round} ->
-            vote(order:decr(N), Round); %PL: GAPS FILLED
+            vote(N-1, Round);
         {vote, _} ->
-            vote(order:decr(N), Round);
+            vote(N, Round);
         {sorry, {accept, Round}} ->
-            vote(order:decr(N), Round); %PL: GAPS FILLED
+            vote(N, Round);
         {sorry, _} ->
-            vote(order:decr(N), Round)
+            vote(N, Round)
     after ?timeout ->
             abort
     end.
