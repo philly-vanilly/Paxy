@@ -2,7 +2,7 @@
 -export([start/2]).
 
 -define(delay, 200).
--define(drop, 10000).
+-define(drop, 2000).
 
 % entry point of the module, creating a new process representing an instance of this module (like object in OOP)
 start(Name, PanelId) ->
@@ -10,13 +10,21 @@ start(Name, PanelId) ->
 
 % constructior function initializing with default values and parameters and starting the loop-function of the process
 init(Name, PanelId) ->
-    % initializing everything at 0 or not-available because there is no promise or vote (with corresponding value) at the
-    % beginning
-    Promised = order:null(),
-    Voted = order:null(),
-    Value = na,
-    acceptor(Name, Promised, Voted, Value, PanelId).
-
+  pers:open(Name),
+  case PanelId of
+    na ->
+      io:format("Acceptor ~w crashed and restarted~n", [Name]),
+      {Promised, Voted, Value, PanelId} = pers:read(Name);
+    _->
+      % initializing everything at 0 or not-available because there is no promise or vote (with corresponding value) at the
+      % beginning
+      Promised = order:null(),
+      Voted = order:null(),
+      Value = na
+  end,
+  io:format("Acceptor ~w storing data~n", [Name]),
+  pers:store(Name, Promised, Voted, Value, PanelId), %store(Name, Pr, Vt, Ac, Pn)-> ...
+  acceptor(Name, Promised, Voted, Value, PanelId).
 
 % indefinitely running loop-function of the process which makes it alive.
 % after initialization listens to incoming messages for the process it belongs to. those messages control the function
@@ -71,12 +79,13 @@ acceptor(Name, Promised, Voted, Value, PanelId) ->
             PanelId ! {updateAcc, "Voted: "
                       ++ io_lib:format("~p", [Voted]), "Promised: "
                       ++ io_lib:format("~p", [Round]), Colour},
+            pers:store(Name, Round, Voted, Value, PanelId),
             acceptor(Name, Round, Voted, Value, PanelId);
         false ->
           io:format("Acceptor ~w: Round ~w <= last Promise ~w, sorry proposer!~n", [Name, Round, Promised]),
           % In Paxos optional sorry message back to proposer containing Round, so Proposer knows to which original
           % message this is a response to
-          % Proposer ! {sorry, {prepare, Round}},
+          Proposer ! {sorry, {prepare, Round}},
           acceptor(Name, Promised, Voted, Value, PanelId)
       end;
 
@@ -107,6 +116,7 @@ acceptor(Name, Promised, Voted, Value, PanelId) ->
               PanelId ! {updateAcc, "Voted: "
                       ++ io_lib:format("~p", [Round]), "Promised: "
                       ++ io_lib:format("~p", [Promised]), Proposal},
+              pers:store(Name, Promised, Round, Proposal, PanelId),
               acceptor(Name, Promised, Round, Proposal, PanelId);
             false -> % send old values to gui
               io:format("[Acceptor ~w] Phase 2: promised ~w voted ~w colour ~w~n", [Name, Promised, Voted, Value]),
@@ -118,7 +128,7 @@ acceptor(Name, Promised, Voted, Value, PanelId) ->
         false ->
           % In Paxos optional sorry message back to proposer containing Round, so Proposer knows to which original
           % message this is a response to
-          % Proposer ! {sorry, {accept, Round}},
+          Proposer ! {sorry, {accept, Round}},
           acceptor(Name, Promised, Voted, Value, PanelId)
       end;
 

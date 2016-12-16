@@ -33,7 +33,7 @@ round(Name, Backoff, Round, Proposal, Acceptors, PanelId) ->
     PanelId ! {updateProp, "Round: " 
             ++ io_lib:format("~p", [Round]), "Proposal: "
             ++ io_lib:format("~p", [Proposal]), Proposal},
-    case ballot(Name, Round, Proposal, Acceptors, PanelId) of %PL: GAPS FILLED
+    case ballot(Name, Round, Proposal, Acceptors, PanelId) of
         {ok, Decision} ->
             io:format("[Proposer ~w] ~w DECIDED ~w in round ~w~n", [Name, Acceptors, Decision, Round]),
             PanelId ! stop,
@@ -48,14 +48,14 @@ ballot(Name, Round, Proposal, Acceptors, PanelId) ->
     prepare(Round, Acceptors),
     Quorum = (length(Acceptors) div 2) + 1, %calculating needed acceptors for majority
     MaxVoted = order:null(),
-    case collect(Quorum, Round, MaxVoted, Proposal) of
+    case collect(Quorum, Round, MaxVoted, Proposal, Quorum) of
         {accepted, Value} ->
             io:format("[Proposer ~w] Phase 2: round ~w proposal ~w (was ~w)~n", [Name, Round, Value, Proposal]),
             PanelId ! {updateProp, "Round: " 
                     ++ io_lib:format("~p", [Round]), "Proposal: "
                     ++ io_lib:format("~p", [Value]), Value},
             accept(Round, Value, Acceptors),
-            case vote(Quorum, Round) of
+            case vote(Quorum, Round, Quorum) of
                 ok -> % in case result of vote is an ok, return decision
                     {ok, Value};
                 abort ->
@@ -66,41 +66,49 @@ ballot(Name, Round, Proposal, Acceptors, PanelId) ->
     end.
 
 % Two collect()-functions for iterating a number of acceptors
-collect(0, _, _, Proposal) -> % when N reaches 0, the needed quorum of proposers has been asked, so accept proposal
+collect(0, _, _, Proposal, _) -> % when N reaches 0, the needed quorum of proposers has been asked, so accept proposal
+    io:format("ACCEPTED BASED ON ACCEPTORS~n"),
     {accepted, Proposal};
-collect(N, Round, MaxVoted, Proposal) -> % decrease N upon receiving promise
-    receive 
+collect(_,_,_,_,0) -> %end of loop
+    io:format("TERMINATED BASED ON SORRIES~n"),
+    abort;
+collect(N, Round, MaxVoted, Proposal, Sorries) ->
+    receive
         {promise, Round, _, na} ->
-            collect(N-1, Round, MaxVoted, Proposal);
+            collect(N-1, Round, MaxVoted, Proposal, Sorries);
         {promise, Round, Voted, Value} ->
             case order:gr(Voted, MaxVoted) of
                 true ->
-                    collect(N-1, Round, Voted, Value);
+                    collect(N-1, Round, Voted, Value, Sorries);
                 false ->
-                    collect(N-1, Round, MaxVoted, Proposal)
+                    collect(N-1, Round, MaxVoted, Proposal, Sorries)
             end;
-        {promise, _, _,  _} ->
-            collect(N-1, Round, MaxVoted, Proposal);
+        {promise, _, _, _} ->
+            collect(N-1, Round, MaxVoted, Proposal, Sorries);
         {sorry, {prepare, Round}} ->
-            collect(N, Round, MaxVoted, Proposal);
+            collect(N, Round, MaxVoted, Proposal, Sorries-1); %on sorry, decrease counter
         {sorry, _} ->
-            collect(N, Round, MaxVoted, Proposal)
+            collect(N, Round, MaxVoted, Proposal, Sorries-1) %on sorry, decrease counter
     after ?timeout ->
             abort
     end.
 
-vote(0, _) -> % counter at 0, stop collecting votes
+vote(0, _, _) ->
+    io:format("TERMINATED BASED ON VOTES~n"),
     ok;
-vote(N, Round) -> % decrease counter N with every vote
+vote(_, _, 0) -> % sorry-counter at 0
+    io:format("TERMINATED BASED ON SORRIES~n"),
+    abort;
+vote(N, Round, Sorries) ->
     receive
         {vote, Round} ->
-            vote(N-1, Round);
+            vote(N-1, Round, Sorries);
         {vote, _} ->
-            vote(N-1, Round);
+            vote(N-1, Round, Sorries);
         {sorry, {accept, Round}} ->
-            vote(N-1, Round);
+            vote(N-1, Round, Sorries-1);
         {sorry, _} ->
-            vote(N-1, Round)
+            vote(N-1, Round, Sorries-1)
     after ?timeout ->
             abort
     end.
@@ -117,5 +125,17 @@ accept(Round, Proposal, Acceptors) ->
     end,
     lists:foreach(Fun, Acceptors).
 
+%%send(Name, Message) ->
+%%    Name ! Message.
+
 send(Name, Message) ->
-    Name ! Message.
+    if is_tuple(Name) -> %remote
+        Name ! Message;
+        true -> %local
+            case whereis(Name) of
+                undefined ->
+                    down;
+                Pid ->
+                    Pid ! Message
+            end
+    end.

@@ -1,5 +1,5 @@
 -module(paxy).
--export([start/1, stop/0, stop/1]). % exposing interfaces for console. start program with (for example) paxy:start([50,100,200]).
+-export([start/1, stop/0, stop/1, crash/1]). % exposing interfaces for console. start program with (for example) paxy:start([50,100,200]).
 
 -define(RED, {255,0,0}). % defining colors for GUI. colors represent values to be voted for
 -define(BLUE, {0,0,255}).
@@ -59,7 +59,7 @@ start_proposers(PropIds, PropInfo, Acceptors, Sleep) ->
             start_proposers(Rest, RestInfo, Acceptors, RestSleep)
         end.
 
-stop() -> % stop logic first, view later
+stop() ->
     stop(a),
     stop(b),
     stop(c),
@@ -67,12 +67,26 @@ stop() -> % stop logic first, view later
     stop(e),
     stop(gui).
 
-stop(Name) -> % stop all sorts of processes
+stop(Name) ->
     case whereis(Name) of
         undefined ->
             ok;
         Pid ->
+            pers:delete(Name),
             Pid ! stop
     end.
 
- 
+crash(Name) ->
+    case whereis(Name) of
+        undefined ->
+            ok;
+        Pid ->
+            pers:open(Name),
+            {_, _, _, Pn} = pers:read(Name),
+            Pn ! {updateAcc, "Voted: CRASHED", "Promised: CRASHED", {0,0,0}},
+            dets:close(Name),
+            unregister(Name),
+            exit(Pid, "crash"),
+            timer:sleep(2000),
+            register(Name, acceptor:start(Name, na))
+    end.
